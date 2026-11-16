@@ -51,7 +51,7 @@ export function PreferencesCard() {
         <CardBody>
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between gap-4">
-              <dt className="text-neutral-500">API mode</dt>
+              <dt className="text-neutral-500">Module data</dt>
               <dd className="font-semibold text-ink-900 uppercase">{env.apiMode}</dd>
             </div>
             <div className="flex justify-between gap-4">

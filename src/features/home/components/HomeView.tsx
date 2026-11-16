@@ -54,13 +54,13 @@ function HeroArt() {
 export function HomeView() {
   const dispatch = useAppDispatch();
   const { summary, status, error } = useAppSelector((s) => s.home);
-  const role = useAppSelector((s) => s.auth.user?.role);
+  const user = useAppSelector((s) => s.auth.user);
 
   useEffect(() => {
     if (status === "idle") void dispatch(fetchHomeSummary());
   }, [status, dispatch]);
 
-  const modules = MODULES.filter((m) => m.key !== "setup" && hasPermission(role, m.permission));
+  const modules = MODULES.filter((m) => m.key !== "setup" && hasPermission(user, m.permission));
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">

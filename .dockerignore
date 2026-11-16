@@ -1,0 +1,32 @@
+# Dependencies and build output are recreated inside the image
+node_modules
+.next
+out
+build
+coverage
+*.tsbuildinfo
+
+# Never send real env files to the build context (secrets, per-machine values)
+.env
+.env.*
+!.env.example
+
+# VCS, editor, OS, logs
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Docker / docs files are not needed to build the app
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+docker
+docs
+README.md

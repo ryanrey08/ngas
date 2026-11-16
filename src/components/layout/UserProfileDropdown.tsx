@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
-import { ROLE_LABELS } from "@/config/navigation";
 import { logout } from "@/features/auth/authSlice";
+import { roleLabel } from "@/features/auth/authUtils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ROUTES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,6 @@ export function UserProfileDropdown() {
     setSigningOut(true);
     await dispatch(logout());
     router.replace(ROUTES.login);
-    router.refresh();
   };
 
   const item = "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-ink-900";
@@ -46,7 +45,7 @@ export function UserProfileDropdown() {
         <Avatar name={user.name} size="sm" />
         <span className="hidden text-left md:block">
           <span className="block max-w-36 truncate text-sm font-semibold text-ink-900">{user.name}</span>
-          <span className="block max-w-36 truncate text-xs text-neutral-500">{ROLE_LABELS[user.role]}</span>
+          <span className="block max-w-36 truncate text-xs text-neutral-500">{roleLabel(user)}</span>
         </span>
         <ChevronDown className={cn("hidden h-4 w-4 text-neutral-500 transition-transform md:block", open && "rotate-180")} aria-hidden />
       </button>

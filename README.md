@@ -39,7 +39,7 @@ npm install
 npm run dev                  # http://localhost:3000
 ```
 
-**Demo login (mock mode):** use any valid email and a password of at least 8 characters. The role comes from the email: include `viewer`, `budget` or `accountant` to preview those roles; any other email signs you in as a System Administrator.
+**Sign-in is real:** it goes to the NGAS backend (`NGAS_BACKEND_API_URL`, default `http://localhost:8080/api/v1/engas`), so the backend must be running. Use an account created with `php artisan system:create-user engas …`. See [docs/AUTH_API_INTEGRATION.md](docs/AUTH_API_INTEGRATION.md).
 
 ## Scripts
 
@@ -87,7 +87,7 @@ src/
 
 | Slice | Contents | Persisted? |
 | --- | --- | --- |
-| `auth` | user, accessToken, expiry, status; `login`/`logout` thunks | only `user` + `expiresAt`. The **token stays in memory only** |
+| `auth` | user, isAuthenticated, isLoading, isInitialized, error; `login` / `fetchCurrentUser` / `logout` thunks | no. The token is in an httpOnly cookie; the user is re-fetched from `/auth/me` |
 | `ui` | sidebarCollapsed, mobileNavOpen, toasts, selected institution | `sidebarCollapsed`, `institutionId` |
 | `notifications` | list, mark read / mark all read | no |
 | `home` | system summary (`fetchHomeSummary`) | no |
@@ -100,29 +100,16 @@ Read-only list screens fetch through services with `useAsyncData` and keep their
 
 ## Authentication and route protection
 
-- On login, the app sets a **non-sensitive** `ngas_session=1` cookie (30 days with "Remember me", otherwise a session cookie). `src/middleware.ts` uses it to redirect signed-out users to `/login?from=…`, and signed-in users away from `/login`. Logout and 401 responses clear it.
-- The access token is never written to storage or cookies by the frontend.
-- **For a real backend:** issue the session/refresh token as an `httpOnly; Secure; SameSite` cookie (axios uses `withCredentials: true`), have middleware validate that cookie instead of the marker, and add a refresh-token flow in `lib/axios.ts`.
-- Navigation entries and actions are filtered by role permissions (`config/navigation.ts`, `usePermission`); for example, the Viewer role sees no Save/Post/New buttons. Real authorization must still be enforced by the API.
+Authentication uses the NGAS backend's bearer-token API through a same-origin proxy (`src/app/api/backend`), which keeps the token in an httpOnly `ngas_token` cookie. Full details, including endpoints, error format and unsupported features, are in **[docs/AUTH_API_INTEGRATION.md](docs/AUTH_API_INTEGRATION.md)**.
 
-## Switching to a real backend
+- `src/middleware.ts` redirects signed-out users to `/login?from=…`, and signed-in users away from `/login`.
+- `AuthGate` (dashboard layout) verifies the session with `GET /auth/me` before rendering protected pages.
+- A 401 clears the cookie and state and redirects to `/login?reason=expired`.
+- Navigation uses the backend's permissions (`config/navigation.ts`, `usePermission`). The API still authorises every request.
 
-1. In `.env.local`:
-   ```
-   NEXT_PUBLIC_API_MODE=real
-   NEXT_PUBLIC_API_BASE_URL=https://your-api.example.gov.ph/api
-   ```
-2. Implement the endpoints listed in `src/lib/constants.ts` → `API_ENDPOINTS`:
-   - `POST /auth/login` returning `{ user, accessToken, expiresAt }`
-   - `GET/POST /journal-entries` and `POST /journal-entries/:id/reverse`
-   - `GET/POST /coa/accounts`
-   - `GET /dashboard/summary`, `/receivables/overview`, `/payables/overview` and `/financial-reports`
-   - the generic list endpoints `GET /<module>/<tab>` (for example `/payables/invoices`)
+## Data modules and the backend
 
-   Response shapes are the TypeScript types in `src/features/*/types.ts`.
-3. Each service in `src/services/` already has a real branch that uses the shared `apiClient`. No component changes are needed.
-
-`apiClient` (`src/lib/axios.ts`) adds `Authorization: Bearer <token>` from the store, turns errors into `{ status, message, errors }`, and on **401** logs the user out and redirects to `/login`.
+Journals, COA, payables, receivables and reports have **no backend endpoints yet**. With `NEXT_PUBLIC_API_MODE=mock` (the default) they use `src/mocks`. Each service in `src/services/` has a real branch using the shared `apiClient`, which calls `/api/backend/<path>`; the proxy then forwards to `NGAS_BACKEND_API_URL/<path>`.
 
 ## Accessibility and responsiveness
 

@@ -7,7 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
+    "docker:dev:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
+    "docker:prod:build": "docker compose -f docker-compose.yml -f docker-compose.prod.yml build",
+    "docker:prod": "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build",
+    "docker:prod:down": "docker compose -f docker-compose.yml -f docker-compose.prod.yml down",
+    "docker:logs": "docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f",
+    "docker:ps": "docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.5",

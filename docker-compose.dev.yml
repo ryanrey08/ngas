@@ -1,0 +1,29 @@
+# Development: next dev with hot reload, source bind-mounted from the host.
+services:
+  frontend:
+    image: ngas-frontend:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/backend}
+      NEXT_PUBLIC_API_MODE: ${NEXT_PUBLIC_API_MODE:-mock}
+      NEXT_PUBLIC_API_TIMEOUT: ${NEXT_PUBLIC_API_TIMEOUT:-15000}
+      # Bind-mount file events are not always delivered into the VM (macOS) or across
+      # filesystems; polling makes hot reload reliable everywhere.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./:/app
+      # Keep the Linux node_modules and Next cache inside Docker so the host's
+      # (macOS) node_modules and .next never shadow them.
+      - node_modules:/app/node_modules
+      - next_cache:/app/.next
+    restart: unless-stopped
+
+volumes:
+  node_modules:
+  next_cache:

@@ -1,4 +1,5 @@
 import { House, type LucideIcon } from "lucide-react";
+import type { AuthUser, BackendPermission } from "@/features/auth/types";
 import type { Permission, Role } from "@/types";
 import { MODULES, SETUP_LINKS, getModule, tabHref } from "./modules";
 
@@ -9,7 +10,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   viewer: "Viewer / Auditor",
 };
 
-/** Role → permission matrix. Mirrors what a backend RBAC would return. */
+/** Demo role → permission matrix, shown only on the mock Users & Roles screen. */
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: [
     "dashboard:view",
@@ -97,19 +98,33 @@ export function isNavActive(entry: NavEntry, pathname: string) {
   return entry.matchPrefix.split("|").some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-export function hasPermission(role: Role | undefined, permission: Permission): boolean {
-  if (!role) return false;
-  return ROLE_PERMISSIONS[role].includes(permission);
+/**
+ * Frontend capability → backend permission. The eNGAS backend currently defines permissions only
+ * for user/role administration and cross-system reports (App\Enums\Permission). Accounting
+ * capabilities have no backend permission yet, so every active, signed-in user gets them; the
+ * backend still authorises each request itself.
+ */
+const BACKEND_PERMISSION: Partial<Record<Permission, BackendPermission>> = {
+  "users:manage": "users.view",
+};
+
+type PermissionSubject = Pick<AuthUser, "permissions" | "is_super_admin" | "is_active"> | null | undefined;
+
+export function hasPermission(user: PermissionSubject, permission: Permission): boolean {
+  if (!user || !user.is_active) return false;
+  if (user.is_super_admin) return true;
+  const required = BACKEND_PERMISSION[permission];
+  return required ? user.permissions.includes(required) : true;
 }
 
-export function filterNavigation(role: Role | undefined): NavEntry[] {
-  return NAVIGATION.filter((e) => !e.permission || hasPermission(role, e.permission)).map((e) =>
+export function filterNavigation(user: PermissionSubject): NavEntry[] {
+  return NAVIGATION.filter((e) => !e.permission || hasPermission(user, e.permission)).map((e) =>
     e.children
       ? {
           ...e,
           children: e.children.filter((c) => {
             const link = SETUP_LINKS.find((l) => l.href === c.href);
-            return !link || hasPermission(role, link.permission);
+            return !link || hasPermission(user, link.permission);
           }),
         }
       : e,

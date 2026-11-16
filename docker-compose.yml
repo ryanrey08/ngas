@@ -1,0 +1,21 @@
+# Shared base for the NGAS frontend. Always combine with an override:
+#   dev:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#   prod: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Values like ${NGAS_BACKEND_API_URL} come from your shell or a `.env` file next to this file
+# (see .env.example). Nothing here is a secret.
+name: ngas-frontend
+
+services:
+  frontend:
+    environment:
+      PORT: "3000"
+      # Server-only: where the Next.js proxy (src/app/api/backend) reaches the Laravel API.
+      # Read at RUNTIME by the server, so it can change without rebuilding.
+      # `localhost` inside a container is the container itself; the default reaches the
+      # backend published on the host's port 8080 (Docker Desktop, and Linux via extra_hosts).
+      NGAS_BACKEND_API_URL: ${NGAS_BACKEND_API_URL:-http://host.docker.internal:8080/api/v1/engas}
+      NGAS_BACKEND_TIMEOUT_MS: ${NGAS_BACKEND_TIMEOUT_MS:-15000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true

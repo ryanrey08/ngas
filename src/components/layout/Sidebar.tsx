@@ -90,8 +90,8 @@ function NavItem({
 
 function NavContent({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
-  const role = useAppSelector((s) => s.auth.user?.role);
-  const entries = filterNavigation(role);
+  const user = useAppSelector((s) => s.auth.user);
+  const entries = filterNavigation(user);
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   // Auto-expand the module that contains the current route.

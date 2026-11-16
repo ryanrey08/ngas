@@ -1,17 +1,18 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CircleAlert, Eye, EyeOff, Info, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { FormInput } from "@/components/forms/FormInput";
+import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
-import { isMockApi } from "@/config/env";
 import { ROUTES } from "@/lib/constants";
 import { safeRedirectPath } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { showToast } from "@/store/slices/uiSlice";
 import { clearAuthError, login } from "../authSlice";
 import { loginSchema, type LoginFormValues } from "../schemas";
 
@@ -19,12 +20,14 @@ export function LoginForm() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { status, error } = useAppSelector((s) => s.auth);
+  const { isLoading, error } = useAppSelector((s) => s.auth);
   const [showPassword, setShowPassword] = useState(false);
+  const sessionExpired = searchParams.get("reason") === "expired";
 
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -38,22 +41,31 @@ export function LoginForm() {
   }, [dispatch]);
 
   const onSubmit = async (values: LoginFormValues) => {
+    if (isLoading) return;
     const result = await dispatch(login(values));
     if (login.fulfilled.match(result)) {
+      dispatch(showToast({ variant: "success", title: `Welcome back, ${result.payload.name}` }));
       router.replace(safeRedirectPath(searchParams.get("from"), ROUTES.dashboard));
-      router.refresh();
+      return;
+    }
+    // Surface the backend's own field validation messages next to each field.
+    const fieldErrors = result.payload?.errors;
+    if (fieldErrors) {
+      for (const field of ["email", "password"] as const) {
+        const message = fieldErrors[field]?.[0];
+        if (message) setError(field, { type: "server", message });
+      }
     }
   };
 
-  const loading = status === "loading";
+  const loading = isLoading;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5" aria-describedby={error ? "login-error" : undefined}>
-      {error && (
-        <div id="login-error" role="alert" className="flex items-start gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>{error}</span>
-        </div>
+      {error ? (
+        <Alert id="login-error">{error}</Alert>
+      ) : (
+        sessionExpired && <Alert tone="info">Your session has expired. Please sign in again.</Alert>
       )}
 
       <FormInput
@@ -63,6 +75,7 @@ export function LoginForm() {
         placeholder="juan.delacruz@agency.gov.ph"
         leftIcon={<Mail />}
         required
+        disabled={loading}
         error={errors.email?.message}
         {...register("email")}
       />
@@ -74,6 +87,7 @@ export function LoginForm() {
         placeholder="Enter your password"
         leftIcon={<Lock />}
         required
+        disabled={loading}
         error={errors.password?.message}
         rightSlot={
           <button
@@ -103,16 +117,6 @@ export function LoginForm() {
         {loading ? "Signing in…" : "Sign in"}
       </Button>
 
-      {isMockApi && (
-        <div className="flex gap-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3 text-xs text-neutral-600">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" aria-hidden />
-          <p>
-            <span className="font-semibold text-ink-900">Demo mode:</span> sign in with any valid email and a password of at
-            least 8 characters. Include <code className="font-semibold">viewer</code>, <code className="font-semibold">budget</code>{" "}
-            or <code className="font-semibold">accountant</code> in the email to preview other roles.
-          </p>
-        </div>
-      )}
     </form>
   );
 }

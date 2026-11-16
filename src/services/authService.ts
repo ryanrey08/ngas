@@ -1,41 +1,28 @@
-import { isMockApi } from "@/config/env";
 import { apiClient } from "@/lib/axios";
 import { API_ENDPOINTS } from "@/lib/constants";
-import { delay } from "@/mocks/delay";
-import { mockUserFromEmail } from "@/mocks/users";
-import type { AuthResponse, LoginCredentials } from "@/features/auth/types";
-import type { ApiError } from "@/types";
+import type { AuthUser, LoginCredentials, LoginResponse, MeResponse } from "@/features/auth/types";
 
+/**
+ * eNGAS backend authentication (bearer tokens, `/api/v1/engas/auth/*`), called through the
+ * same-origin proxy. Always talks to the real backend — there is no mock mode for auth.
+ *
+ * The backend has no forgot-password or reset-password endpoints, so none are exposed here.
+ */
 export const authService = {
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    if (isMockApi) {
-      await delay(700);
-      if (credentials.password.length < 8) {
-        throw { status: 401, message: "Invalid email or password." } satisfies ApiError;
-      }
-      return {
-        user: mockUserFromEmail(credentials.email),
-        accessToken: `mock.${btoa(credentials.email)}.${Date.now()}`,
-        expiresAt: Date.now() + 1000 * 60 * 60 * 8,
-      };
-    }
-    const { data } = await apiClient.post<AuthResponse>(API_ENDPOINTS.auth.login, credentials);
+  /** `POST /auth/login`. The proxy stores the token in an httpOnly cookie and returns the user. */
+  async login({ email, password, remember }: LoginCredentials): Promise<LoginResponse> {
+    const { data } = await apiClient.post<LoginResponse>(API_ENDPOINTS.auth.login, { email, password, remember });
     return data;
   },
 
-  async logout(): Promise<void> {
-    if (isMockApi) {
-      await delay(150);
-      return;
-    }
-    await apiClient.post(API_ENDPOINTS.auth.logout);
+  /** `GET /auth/me`: the user with roles and effective permissions. */
+  async me(): Promise<AuthUser> {
+    const { data } = await apiClient.get<MeResponse>(API_ENDPOINTS.auth.me);
+    return data.data;
   },
 
-  async requestPasswordReset(email: string): Promise<void> {
-    if (isMockApi) {
-      await delay(800);
-      return;
-    }
-    await apiClient.post(API_ENDPOINTS.auth.forgotPassword, { email });
+  /** `POST /auth/logout`: revokes the current token. The proxy clears the cookie either way. */
+  async logout(): Promise<void> {
+    await apiClient.post(API_ENDPOINTS.auth.logout);
   },
 };

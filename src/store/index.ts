@@ -1,4 +1,4 @@
-import { combineReducers, configureStore } from "@reduxjs/toolkit";
+import { combineReducers, configureStore, type UnknownAction } from "@reduxjs/toolkit";
 import {
   FLUSH,
   PAUSE,
@@ -9,7 +9,7 @@ import {
   persistReducer,
   persistStore,
 } from "redux-persist";
-import authReducer from "@/features/auth/authSlice";
+import authReducer, { logout, sessionExpired } from "@/features/auth/authSlice";
 import coaReducer from "@/features/coa/coaSlice";
 import homeReducer from "@/features/home/homeSlice";
 import journalReducer from "@/features/journal/journalSlice";
@@ -21,21 +21,28 @@ import storage from "./storage";
 /**
  * Persistence policy:
  *  - ui: only the sidebar preference (no transient drawer/toast state)
- *  - auth: only the signed-in user profile + expiry (NOT the access token — that lives
- *    in memory; a real backend should rely on an httpOnly refresh cookie)
+ *  - auth: never persisted. The backend token is in an httpOnly cookie and the user is
+ *    re-fetched from `GET /auth/me` on load, so nothing about the user sits in localStorage.
  *  - home/journal/coa/notifications: never persisted (server data)
  */
-const authPersistConfig = { key: `${PERSIST_KEY}:auth`, storage, whitelist: ["user", "expiresAt"] };
 const uiPersistConfig = { key: `${PERSIST_KEY}:ui`, storage, whitelist: ["sidebarCollapsed", "institutionId"] };
 
-const rootReducer = combineReducers({
-  auth: persistReducer(authPersistConfig, authReducer),
+const appReducer = combineReducers({
+  auth: authReducer,
   ui: persistReducer(uiPersistConfig, uiReducer),
   notifications: notificationsReducer,
   home: homeReducer,
   journal: journalReducer,
   coa: coaReducer,
 });
+
+/** On sign-out or session expiry, drop all user-specific state; keep only UI preferences. */
+function rootReducer(state: ReturnType<typeof appReducer> | undefined, action: UnknownAction) {
+  if (state && (logout.fulfilled.match(action) || sessionExpired.match(action))) {
+    return appReducer({ ui: state.ui }, action);
+  }
+  return appReducer(state, action);
+}
 
 export function makeStore() {
   const store = configureStore({
@@ -51,5 +58,5 @@ export function makeStore() {
 }
 
 export type AppStore = ReturnType<typeof makeStore>["store"];
-export type RootState = ReturnType<typeof rootReducer>;
+export type RootState = ReturnType<typeof appReducer>;
 export type AppDispatch = AppStore["dispatch"];

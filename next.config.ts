@@ -14,6 +14,9 @@ const MODULE_DEFAULT_TABS: Record<string, string> = {
 };
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle (.next/standalone) for the production Docker image.
+  // Has no effect on `next dev`; `next start` still works but warns, use `node .next/standalone/server.js` instead.
+  output: "standalone",
   async redirects() {
     return Object.entries(MODULE_DEFAULT_TABS).map(([source, tab]) => ({
       source,
