@@ -9,10 +9,10 @@ import { PageLoader } from "@/components/ui/LoadingSpinner";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { StatTile } from "@/components/ui/StatTile";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { useAsyncData } from "@/hooks/useAsyncData";
 import { usePageCommand } from "@/hooks/usePageCommand";
 import { downloadCsv, formatCompactCurrency, formatCurrency, formatDate } from "@/lib/utils";
-import { moduleService } from "@/services/moduleService";
+import { errorMessage } from "@/services/api/errors";
+import { useGetPayablesOverviewQuery } from "@/services/api/endpoints/dashboardApi";
 
 const QUICK = [
   { label: "Create AP Invoice", href: "/payables/invoices", icon: FilePlus2 },
@@ -22,13 +22,13 @@ const QUICK = [
 ];
 
 export function PayablesOverviewView() {
-  const { data, loading, error, reload } = useAsyncData(moduleService.getPayablesOverview);
+  const { data, isLoading, error, refetch } = useGetPayablesOverviewQuery();
   usePageCommand("export", () => data && downloadCsv("engas-ap-aging.csv", data.agingBySupplier));
 
-  if (error) return <ErrorState message={error} onRetry={reload} />;
-  if (loading || !data) return <PageLoader label="Loading payables overview…" />;
+  if (error && !data) return <ErrorState message={errorMessage(error)} onRetry={refetch} />;
+  if (isLoading || !data) return <PageLoader label="Loading payables overview…" />;
 
-  const pct = (n: number) => `${((n / data.total) * 100).toFixed(1)}%`;
+  const pct = (n: number) => `${data.total ? ((n / data.total) * 100).toFixed(1) : "0.0"}%`;
   const sum = (k: string) => data.agingBySupplier.reduce((s, r) => s + Number(r[k]), 0);
   const money = (n: number) => formatCurrency(n).replace("₱", "");
 

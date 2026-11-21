@@ -88,7 +88,7 @@ export interface BackendResult {
  */
 export async function callBackend(
   path: string,
-  init: { method: string; token?: string | null; body?: BodyInit | null; contentType?: string | null },
+  init: { method: string; token?: string | null; body?: BodyInit | null; contentType?: string | null; institutionId?: string | null },
 ): Promise<BackendResult | { error: "unavailable" | "timeout" | "not_configured" }> {
   const base = backendBaseUrl();
   if (!base) return { error: "not_configured" };
@@ -96,6 +96,8 @@ export async function callBackend(
   const headers = new Headers({ Accept: "application/json" });
   if (init.contentType) headers.set("Content-Type", init.contentType);
   if (init.token) headers.set("Authorization", `Bearer ${init.token}`);
+  // Selected agency/institution (only a short, safe identifier is forwarded).
+  if (init.institutionId && /^[A-Za-z0-9_-]{1,64}$/.test(init.institutionId)) headers.set("X-Institution-Id", init.institutionId);
 
   try {
     const res = await fetch(`${base}${path}`, {

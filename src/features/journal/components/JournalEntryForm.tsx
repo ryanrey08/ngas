@@ -3,19 +3,20 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronDown, CircleAlert, CircleCheck, Info, ListOrdered, Paperclip, Plus, Trash2, FileText } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type BaseSyntheticEvent } from "react";
+import { useMemo, useState, type BaseSyntheticEvent } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { DatePicker, FormInput, FormSelect, FormTextarea } from "@/components/forms";
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { fetchAccounts } from "@/features/coa/coaSlice";
 import { ENTRY_FORM_ID } from "@/features/modules/components/TabActions";
 import { usePermission } from "@/hooks/usePermission";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { showToast } from "@/store/slices/uiSlice";
-import { createJournalEntry } from "../journalSlice";
+import { errorMessage, fieldErrors } from "@/services/api/errors";
+import { useGetAccountsQuery } from "@/services/api/endpoints/coaApi";
+import { SAVE_ENTRY_KEY, useCreateJournalEntryMutation } from "@/services/api/endpoints/journalApi";
 import { journalEntrySchema, type JournalEntryFormValues } from "../schemas";
 import { ACCRUAL_TYPES, DEPARTMENTS, JOURNAL_TYPES, PROJECT_CODES, type JournalKind } from "../types";
 
@@ -42,15 +43,12 @@ export function JournalEntryForm({ kind }: { kind: JournalKind }) {
   const router = useRouter();
   const canManage = usePermission("transactions:manage");
   const user = useAppSelector((s) => s.auth.user);
-  const { accounts, status: coaStatus } = useAppSelector((s) => s.coa);
-  const submitting = useAppSelector((s) => s.journal.mutationStatus === "loading");
+  const { data: accounts = [], isLoading: accountsLoading, isError: accountsError, refetch: refetchAccounts } = useGetAccountsQuery();
+  // Shared cache key: the header Save Draft / Post buttons read the same in-flight state.
+  const [createEntry, { isLoading: submitting }] = useCreateJournalEntryMutation({ fixedCacheKey: SAVE_ENTRY_KEY });
   const [selected, setSelected] = useState<number[]>([]);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<"attachments" | "documents" | null>(null);
-
-  useEffect(() => {
-    if (coaStatus === "idle") void dispatch(fetchAccounts());
-  }, [coaStatus, dispatch]);
 
   const postable = useMemo(() => accounts.filter((a) => a.postable && a.uacs), [accounts]);
   const accountOptions = postable.map((a) => ({ value: a.uacs!, label: `${a.uacs} – ${a.title}` }));
@@ -61,6 +59,7 @@ export function JournalEntryForm({ kind }: { kind: JournalKind }) {
     control,
     handleSubmit,
     reset,
+    setError,
     formState: { errors },
   } = useForm<JournalEntryFormValues>({ resolver: zodResolver(journalEntrySchema), defaultValues: defaults(kind) });
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
@@ -73,6 +72,7 @@ export function JournalEntryForm({ kind }: { kind: JournalKind }) {
   const balanced = totalDebit > 0 && Math.abs(totalDebit - totalCredit) < 0.005;
 
   const onValid = async (values: JournalEntryFormValues, event?: BaseSyntheticEvent) => {
+    if (submitting) return; // no duplicate submissions
     const submitter = (event?.nativeEvent as SubmitEvent | undefined)?.submitter;
     const post = submitter?.getAttribute("value") === "post";
     if (post && !balanced) {
@@ -80,28 +80,32 @@ export function JournalEntryForm({ kind }: { kind: JournalKind }) {
       return;
     }
     setBalanceError(null);
-    const res = await dispatch(
-      createJournalEntry({
-        ...values,
-        kind,
-        status: post ? "Posted" : "Draft",
-        lines: values.lines.map((l) => ({ ...l, accountTitle: titleOf(l.accountCode) })),
-      }),
-    );
-    if (createJournalEntry.fulfilled.match(res)) {
+    const res = await createEntry({
+      ...values,
+      kind,
+      status: post ? "Posted" : "Draft",
+      lines: values.lines.map((l) => ({ ...l, accountTitle: titleOf(l.accountCode) })),
+    });
+    if ("data" in res && res.data) {
       dispatch(
         showToast({
           variant: "success",
           title: post ? "Entry posted to the books" : "Draft saved",
-          description: `${res.payload.transactionNo} · ${formatCurrency(totalDebit)}`,
+          description: `${res.data.transactionNo} · ${formatCurrency(totalDebit)}`,
         }),
       );
       reset(defaults(kind));
       setSelected([]);
       if (post && kind === "double-entry") router.push("/double-entry/posted");
-    } else {
-      dispatch(showToast({ variant: "error", title: "Could not save entry", description: res.payload?.message }));
+      return;
     }
+    // Server-side validation (422): show each message on its field.
+    const fields = fieldErrors(res.error);
+    for (const [path, message] of Object.entries(fields)) {
+      if (path === "lines") setBalanceError(message);
+      else setError(path as Parameters<typeof setError>[0], { message });
+    }
+    dispatch(showToast({ variant: "error", title: "Could not save entry", description: errorMessage(res.error) }));
   };
 
   const deleteSelected = () => {
@@ -128,6 +132,7 @@ export function JournalEntryForm({ kind }: { kind: JournalKind }) {
         setBalanceError(null);
       }}
       className="space-y-4"
+      aria-busy={submitting || undefined}
     >
       {!canManage && (
         <p className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -207,6 +212,22 @@ export function JournalEntryForm({ kind }: { kind: JournalKind }) {
               </tr>
             </thead>
             <tbody>
+              {(accountsLoading || accountsError) && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-2 text-xs text-neutral-600">
+                    {accountsLoading ? (
+                      "Loading chart of accounts…"
+                    ) : (
+                      <>
+                        Couldn&apos;t load the chart of accounts.{" "}
+                        <button type="button" className="font-semibold text-brand-700 underline" onClick={() => void refetchAccounts()}>
+                          Retry
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              )}
               {fields.map((f, i) => {
                 const lineErr = errors.lines?.[i];
                 const code = lines[i]?.accountCode ?? "";

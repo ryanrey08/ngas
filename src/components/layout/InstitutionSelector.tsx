@@ -2,15 +2,17 @@
 
 import { Check, ChevronDown, Landmark } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import { INSTITUTIONS, getInstitution } from "@/config/institutions";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { useCurrentInstitution } from "@/hooks/useCurrentInstitution";
+import { useGetInstitutionsQuery } from "@/services/api/endpoints/settingsApi";
 import { cn } from "@/lib/utils";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { setInstitution, showToast } from "@/store/slices/uiSlice";
 
 export function InstitutionSelector() {
   const dispatch = useAppDispatch();
-  const current = getInstitution(useAppSelector((s) => s.ui.institutionId));
+  const current = useCurrentInstitution();
+  const { data: institutions = [], isLoading, isError, refetch } = useGetInstitutionsQuery();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -33,7 +35,16 @@ export function InstitutionSelector() {
       </button>
       {open && (
         <ul role="listbox" aria-label="Select institution" className="absolute right-0 z-40 mt-1 w-72 animate-scale-in rounded-xl border border-neutral-200 bg-white p-1 shadow-pop">
-          {INSTITUTIONS.map((i) => {
+          {isLoading && <li className="px-3 py-2 text-sm text-neutral-500">Loading institutions…</li>}
+          {isError && (
+            <li className="px-3 py-2 text-sm text-neutral-500">
+              Couldn&apos;t load institutions.{" "}
+              <button type="button" className="font-semibold text-brand-700 underline" onClick={() => void refetch()}>
+                Retry
+              </button>
+            </li>
+          )}
+          {institutions.map((i) => {
             const selected = i.id === current.id;
             return (
               <li key={i.id} role="option" aria-selected={selected}>

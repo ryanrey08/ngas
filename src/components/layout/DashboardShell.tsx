@@ -1,24 +1,15 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Toaster } from "@/components/ui/Toaster";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchNotifications } from "@/store/slices/notificationsSlice";
-import { getInstitution } from "@/config/institutions";
+import { useCurrentInstitution } from "@/hooks/useCurrentInstitution";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 
 export function DashboardShell({ children }: { children: ReactNode }) {
-  const dispatch = useAppDispatch();
-  const user = useAppSelector((s) => s.auth.user);
-  const notificationsStatus = useAppSelector((s) => s.notifications.status);
-  const institution = getInstitution(useAppSelector((s) => s.ui.institutionId));
-
-  // Rendered only inside <AuthGate>, which guarantees a backend-verified user.
-  useEffect(() => {
-    if (user && notificationsStatus === "idle") void dispatch(fetchNotifications());
-  }, [user, notificationsStatus, dispatch]);
+  // Rendered only inside <AuthGate>, which guarantees a backend-verified user before any query runs.
+  const institution = useCurrentInstitution();
 
   return (
     <div className="flex min-h-dvh">

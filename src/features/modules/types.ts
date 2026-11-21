@@ -13,11 +13,13 @@ export interface ListColumn {
   hideOnMobile?: boolean;
 }
 
+/** A KPI tile above a list. Its value is `metric` from `GET /<resource>/summary`. */
 export interface ListTile {
   label: string;
   icon: LucideIcon;
   tone: StatTone;
-  value: (rows: Row[]) => string;
+  metric: string;
+  format?: "currency" | "count";
 }
 
 export interface ListConfig {

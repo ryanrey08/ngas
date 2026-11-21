@@ -1,5 +1,5 @@
 import type { Row } from "@/features/modules/types";
-import { seededRandom } from "./delay";
+import { seededRandom } from "./random";
 
 /**
  * Mock rows for the list screens of every eNGAS module, keyed by "<module>/<tab>".

@@ -33,21 +33,17 @@ export const PROTECTED_PREFIXES = [
 
 export const AUTH_ROUTES = [ROUTES.login, ROUTES.forgotPassword];
 
+/**
+ * Auth routes of the real eNGAS backend (relative to the API base), used by the axios auth client.
+ * Every other endpoint is defined next to its RTK Query hook in src/services/api/endpoints.
+ * No forgot/reset password routes exist.
+ */
 export const API_ENDPOINTS = {
-  /** Real eNGAS backend routes (relative to the API base). No forgot/reset password routes exist. */
   auth: {
     login: "/auth/login",
     logout: "/auth/logout",
     me: "/auth/me",
   },
-  dashboard: { summary: "/dashboard/summary" },
-  journalEntries: "/journal-entries",
-  accounts: "/coa/accounts",
-  receivablesOverview: "/receivables/overview",
-  payablesOverview: "/payables/overview",
-  financialReports: "/financial-reports",
-  notifications: "/notifications",
-  users: "/users",
 } as const;
 
 export const OFFICES = [

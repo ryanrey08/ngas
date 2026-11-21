@@ -1,6 +1,7 @@
 import axios, { AxiosError, type AxiosInstance } from "axios";
 import { env } from "@/config/env";
 import type { ApiError } from "@/types";
+import { NETWORK_ERROR, TIMEOUT_ERROR, toApiError, type ProblemBody } from "@/services/api/errors";
 import { API_ENDPOINTS } from "./constants";
 
 /**
@@ -25,26 +26,9 @@ export function configureApiClient(options: { onUnauthorized: UnauthorizedHandle
   onUnauthorized = options.onUnauthorized;
 }
 
-/** RFC 9457 problem+json body produced by the backend (and by our proxy for its own errors). */
-interface ProblemBody {
-  status?: number;
-  code?: string;
-  detail?: string;
-  errors?: Record<string, string[]>;
-  request_id?: string;
-}
-
-const FRIENDLY: Record<number, string> = {
-  401: "Your session has expired. Please sign in again.",
-  403: "You don't have permission to perform this action.",
-  404: "The requested resource was not found.",
-  429: "Too many requests. Please wait a moment and try again.",
-};
-
-function firstFieldError(errors?: Record<string, string[]>): string | undefined {
-  if (!errors) return undefined;
-  for (const messages of Object.values(errors)) if (messages?.[0]) return messages[0];
-  return undefined;
+/** Called by the RTK Query base query too, so a 401 from any request ends the session the same way. */
+export function notifyUnauthorized() {
+  onUnauthorized();
 }
 
 /**
@@ -58,35 +42,12 @@ export function normalizeError(error: unknown): ApiError {
 
     if (!res) {
       const timedOut = err.code === "ECONNABORTED" || err.code === "ETIMEDOUT";
-      return {
-        status: 0,
-        code: timedOut ? "timeout" : "network_error",
-        message: timedOut
-          ? "The server took too long to respond. Please try again."
-          : "Unable to reach the server. Check your connection and try again.",
-      };
+      return timedOut ? TIMEOUT_ERROR : NETWORK_ERROR;
     }
 
-    const body = res.data && typeof res.data === "object" ? res.data : {};
-    const status = res.status;
     const retryAfterHeader = Number(res.headers?.["retry-after"]);
     const retryAfter = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : undefined;
-
-    let message: string;
-    if (status >= 500) {
-      message =
-        body.code === "backend_unavailable" || status === 502 || status === 503 || status === 504
-          ? "The eNGAS service is currently unavailable. Please try again later."
-          : "An unexpected server error occurred. Please try again.";
-    } else if (status === 422) {
-      message = firstFieldError(body.errors) ?? body.detail ?? "Please check the highlighted fields.";
-    } else if (status === 429 && retryAfter) {
-      message = `Too many attempts. Please wait ${retryAfter} second${retryAfter === 1 ? "" : "s"} and try again.`;
-    } else {
-      message = FRIENDLY[status] ?? body.detail ?? "The request could not be completed.";
-    }
-
-    return { status, message, code: body.code, errors: body.errors, requestId: body.request_id, retryAfter };
+    return toApiError(res.status, res.data, retryAfter);
   }
   if (typeof error === "object" && error && "status" in error && "message" in error) return error as ApiError;
   return { status: 0, message: "An unexpected error occurred." };

@@ -1,56 +1,7 @@
 import { House, type LucideIcon } from "lucide-react";
 import type { AuthUser, BackendPermission } from "@/features/auth/types";
-import type { Permission, Role } from "@/types";
+import type { Permission } from "@/types";
 import { MODULES, SETUP_LINKS, getModule, tabHref } from "./modules";
-
-export const ROLE_LABELS: Record<Role, string> = {
-  admin: "System Administrator",
-  accountant: "Accountant",
-  budget_officer: "Budget Officer",
-  viewer: "Viewer / Auditor",
-};
-
-/** Demo role → permission matrix, shown only on the mock Users & Roles screen. */
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  admin: [
-    "dashboard:view",
-    "transactions:view",
-    "transactions:manage",
-    "budget:view",
-    "budget:manage",
-    "reports:view",
-    "users:manage",
-    "settings:view",
-  ],
-  accountant: [
-    "dashboard:view",
-    "transactions:view",
-    "transactions:manage",
-    "budget:view",
-    "reports:view",
-    "settings:view",
-  ],
-  budget_officer: [
-    "dashboard:view",
-    "transactions:view",
-    "budget:view",
-    "budget:manage",
-    "reports:view",
-    "settings:view",
-  ],
-  viewer: ["dashboard:view", "transactions:view", "budget:view", "reports:view", "settings:view"],
-};
-
-export const PERMISSION_LABELS: Record<Permission, string> = {
-  "dashboard:view": "View dashboard",
-  "transactions:view": "View transactions",
-  "transactions:manage": "Create / edit transactions",
-  "budget:view": "View budget",
-  "budget:manage": "Manage appropriations & allotments",
-  "reports:view": "Generate reports",
-  "users:manage": "Manage users & roles",
-  "settings:view": "Access settings",
-};
 
 export interface NavChild {
   label: string;

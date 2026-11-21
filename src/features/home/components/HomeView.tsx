@@ -2,7 +2,6 @@
 
 import { Activity, ArrowDownToLine, ArrowUpFromLine, ChartColumn, FilePlus2, FileSpreadsheet, ListTree, Link2, Scale, Users, Wallet } from "lucide-react";
 import Link from "next/link";
-import { useEffect } from "react";
 import { Logo } from "@/components/shared/Logo";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -10,8 +9,9 @@ import { SectionCard } from "@/components/ui/SectionCard";
 import { MODULES, tabHref } from "@/config/modules";
 import { hasPermission } from "@/config/navigation";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchHomeSummary } from "../homeSlice";
+import { errorMessage } from "@/services/api/errors";
+import { useGetDashboardSummaryQuery } from "@/services/api/endpoints/dashboardApi";
+import { useAppSelector } from "@/store/hooks";
 
 const QUICK_LINKS = [
   { label: "New Transaction", href: "/double-entry/entry", icon: FilePlus2 },
@@ -52,13 +52,8 @@ function HeroArt() {
 }
 
 export function HomeView() {
-  const dispatch = useAppDispatch();
-  const { summary, status, error } = useAppSelector((s) => s.home);
+  const { data: summary, error, isError, refetch } = useGetDashboardSummaryQuery();
   const user = useAppSelector((s) => s.auth.user);
-
-  useEffect(() => {
-    if (status === "idle") void dispatch(fetchHomeSummary());
-  }, [status, dispatch]);
 
   const modules = MODULES.filter((m) => m.key !== "setup" && hasPermission(user, m.permission));
 
@@ -131,9 +126,9 @@ export function HomeView() {
           </SectionCard>
 
           <SectionCard title="System Summary" icon={ChartColumn} bodyClassName="grid grid-cols-2 gap-2 p-3">
-            {status === "failed" ? (
+            {isError && !summary ? (
               <div className="col-span-2">
-                <ErrorState message={error} onRetry={() => dispatch(fetchHomeSummary())} />
+                <ErrorState message={errorMessage(error)} onRetry={refetch} />
               </div>
             ) : !summary ? (
               <div className="col-span-2 py-6 text-center">
@@ -159,6 +154,12 @@ export function HomeView() {
 
           <SectionCard title="Recent Activities" icon={Activity} bodyClassName="p-0" actions={<Link href="/double-entry/posted" className="text-xs font-semibold text-blue-700 hover:underline">View All</Link>}>
             <ul className="divide-y divide-neutral-100">
+              {summary && summary.recentActivities.length === 0 && <li className="px-4 py-6 text-center text-xs text-neutral-500">No recent activity.</li>}
+              {!summary && !isError && (
+                <li className="py-6 text-center">
+                  <LoadingSpinner label="Loading activity…" />
+                </li>
+              )}
               {(summary?.recentActivities ?? []).map((a) => (
                 <li key={a.id} className="flex gap-3 px-4 py-2.5">
                   <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" aria-hidden />

@@ -10,10 +10,10 @@ import { SectionCard } from "@/components/ui/SectionCard";
 import { StatTile } from "@/components/ui/StatTile";
 import { renderCell } from "@/features/modules/components/cells";
 import type { Row } from "@/features/modules/types";
-import { useAsyncData } from "@/hooks/useAsyncData";
 import { usePageCommand } from "@/hooks/usePageCommand";
 import { downloadCsv, formatCompactCurrency, formatCurrency } from "@/lib/utils";
-import { moduleService } from "@/services/moduleService";
+import { errorMessage } from "@/services/api/errors";
+import { useGetReceivablesOverviewQuery } from "@/services/api/endpoints/dashboardApi";
 
 const COLS: Array<[string, string, Parameters<typeof renderCell>[0], ("right" | "center")?]> = [
   ["no", "Collection No.", "mono"],
@@ -27,12 +27,12 @@ const COLS: Array<[string, string, Parameters<typeof renderCell>[0], ("right" | 
 ];
 
 export function ReceivablesOverviewView() {
-  const { data, loading, error, reload } = useAsyncData(moduleService.getReceivablesOverview);
+  const { data, isLoading, error, refetch } = useGetReceivablesOverviewQuery();
 
   usePageCommand("export", () => data && downloadCsv("engas-collections.csv", data.collections.map((r) => Object.fromEntries(COLS.map(([k, h]) => [h, r[k] ?? ""])))));
 
-  if (error) return <ErrorState message={error} onRetry={reload} />;
-  if (loading || !data) return <PageLoader label="Loading collections overview…" />;
+  if (error && !data) return <ErrorState message={errorMessage(error)} onRetry={refetch} />;
+  if (isLoading || !data) return <PageLoader label="Loading collections overview…" />;
 
   const total = data.byCustomer.reduce((s, x) => s + x.value, 0);
   const columns: Column<Row>[] = COLS.map(([key, header, kind, align]) => ({ key, header, align, sortValue: (r) => r[key], cell: (r) => renderCell(kind, r[key]) }));
@@ -89,7 +89,7 @@ export function ReceivablesOverviewView() {
                 <li key={d.name} className="grid grid-cols-[12px_1fr_auto_auto] items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} aria-hidden />
                   <span className="truncate text-ink-800">{d.name}</span>
-                  <span className="text-neutral-500 tabular-nums">{((d.value / total) * 100).toFixed(1)}%</span>
+                  <span className="text-neutral-500 tabular-nums">{total ? ((d.value / total) * 100).toFixed(1) : "0.0"}%</span>
                   <span className="font-semibold tabular-nums">{formatCurrency(d.value)}</span>
                 </li>
               ))}

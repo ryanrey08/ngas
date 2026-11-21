@@ -33,6 +33,7 @@ async function handle(req: NextRequest, ctx: Ctx) {
     token,
     contentType: hasBody ? req.headers.get("content-type") : null,
     body: hasBody ? await req.arrayBuffer() : null,
+    institutionId: req.headers.get("x-institution-id"),
   });
   if ("error" in result) return unreachable(result.error);
 

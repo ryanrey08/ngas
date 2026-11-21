@@ -29,18 +29,14 @@ import {
   Wallet,
   Workflow,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
-import type { ListConfig, ListTile, Row } from "./types";
+import type { ListConfig, ListTile } from "./types";
 
-const sum = (rows: Row[], key: string) => rows.reduce((s, r) => s + (typeof r[key] === "number" ? (r[key] as number) : 0), 0);
-const count = (rows: Row[], key: string, value: string) => rows.filter((r) => r[key] === value).length;
-const peso = (n: number) => formatCurrency(n);
 
 const bookTiles = (receipts: boolean): ListTile[] => [
-  { label: receipts ? "Total Receipts (Current Period)" : "Total Disbursements (Current Period)", icon: receipts ? ArrowDownToLine : ArrowUpFromLine, tone: "green", value: (r) => peso(sum(r, "amount")) },
-  { label: "Total Entries", icon: FileText, tone: "blue", value: (r) => String(r.length) },
-  { label: "Posted Amount", icon: CircleCheck, tone: "purple", value: (r) => peso(sum(r.filter((x) => x.status === "Posted"), "amount")) },
-  { label: "Unposted Amount", icon: Clock3, tone: "red", value: (r) => peso(sum(r.filter((x) => x.status !== "Posted"), "amount")) },
+  { label: receipts ? "Total Receipts (Current Period)" : "Total Disbursements (Current Period)", icon: receipts ? ArrowDownToLine : ArrowUpFromLine, tone: "green", metric: "totalAmount" },
+  { label: "Total Entries", icon: FileText, tone: "blue", metric: "count", format: "count" },
+  { label: "Posted Amount", icon: CircleCheck, tone: "purple", metric: "postedAmount" },
+  { label: "Unposted Amount", icon: Clock3, tone: "red", metric: "unpostedAmount" },
 ];
 
 const bookColumns = (noHeader: string, refHeader: string): ListConfig["columns"] => [
@@ -286,10 +282,10 @@ export const LIST_CONFIGS: Record<string, ListConfig> = {
     ],
     searchKeys: ["ref", "particulars"],
     tiles: [
-      { label: "Total Debits", icon: ArrowDownToLine, tone: "green", value: (r) => peso(sum(r, "debit")) },
-      { label: "Total Credits", icon: ArrowUpFromLine, tone: "red", value: (r) => peso(sum(r, "credit")) },
-      { label: "Postings", icon: FileText, tone: "blue", value: (r) => String(r.length) },
-      { label: "Ending Balance", icon: Wallet, tone: "purple", value: (r) => peso(Number(r.at(-1)?.balance ?? 0)) },
+      { label: "Total Debits", icon: ArrowDownToLine, tone: "green", metric: "totalDebit" },
+      { label: "Total Credits", icon: ArrowUpFromLine, tone: "red", metric: "totalCredit" },
+      { label: "Postings", icon: FileText, tone: "blue", metric: "count", format: "count" },
+      { label: "Ending Balance", icon: Wallet, tone: "purple", metric: "endingBalance" },
     ],
     totals: ["debit", "credit"],
     pageSize: 10,
@@ -326,10 +322,10 @@ export const LIST_CONFIGS: Record<string, ListConfig> = {
     searchKeys: ["no", "particulars"],
     filters: [{ key: "type", label: "Transaction Type" }, { key: "fund", label: "Fund" }],
     tiles: [
-      { label: "Cash Balance (All Accounts)", icon: Wallet, tone: "green", value: () => peso(125_450_000) },
-      { label: "Total Receipts (Period)", icon: ArrowDownToLine, tone: "blue", value: (r) => peso(sum(r.filter((x) => Number(x.amount) > 0), "amount")) },
-      { label: "Total Disbursements (Period)", icon: ArrowUpFromLine, tone: "purple", value: (r) => peso(-sum(r.filter((x) => Number(x.amount) < 0), "amount")) },
-      { label: "Available Cash Balance", icon: PiggyBank, tone: "amber", value: () => peso(104_700_000) },
+      { label: "Cash Balance (All Accounts)", icon: Wallet, tone: "green", metric: "cashBalance" },
+      { label: "Total Receipts (Period)", icon: ArrowDownToLine, tone: "blue", metric: "totalReceipts" },
+      { label: "Total Disbursements (Period)", icon: ArrowUpFromLine, tone: "purple", metric: "totalDisbursements" },
+      { label: "Available Cash Balance", icon: PiggyBank, tone: "amber", metric: "availableCash" },
     ],
     pageSize: 10,
   },
@@ -366,10 +362,10 @@ export const LIST_CONFIGS: Record<string, ListConfig> = {
     searchKeys: ["no", "payee", "purpose"],
     filters: [{ key: "status", label: "Status" }],
     tiles: [
-      { label: "Petty Cash Fund", icon: PiggyBank, tone: "green", value: () => peso(20_000) },
-      { label: "Vouchers (Period)", icon: FileText, tone: "blue", value: (r) => peso(sum(r, "amount")) },
-      { label: "Pending Liquidation", icon: Clock3, tone: "amber", value: (r) => String(count(r, "status", "Pending")) },
-      { label: "Balance on Hand", icon: Wallet, tone: "purple", value: (r) => peso(20_000 - sum(r.filter((x) => x.status === "Pending"), "amount")) },
+      { label: "Petty Cash Fund", icon: PiggyBank, tone: "green", metric: "fund" },
+      { label: "Vouchers (Period)", icon: FileText, tone: "blue", metric: "vouchersTotal" },
+      { label: "Pending Liquidation", icon: Clock3, tone: "amber", metric: "pendingCount", format: "count" },
+      { label: "Balance on Hand", icon: Wallet, tone: "purple", metric: "balanceOnHand" },
     ],
     totals: ["amount"],
   },
@@ -386,10 +382,10 @@ export const LIST_CONFIGS: Record<string, ListConfig> = {
     ],
     searchKeys: ["fund", "bank"],
     tiles: [
-      { label: "Beginning Balance", icon: Wallet, tone: "blue", value: (r) => peso(sum(r, "beginning")) },
-      { label: "Total Receipts", icon: ArrowDownToLine, tone: "green", value: (r) => peso(sum(r, "receipts")) },
-      { label: "Total Disbursements", icon: ArrowUpFromLine, tone: "red", value: (r) => peso(sum(r, "disbursements")) },
-      { label: "Ending Cash Position", icon: PiggyBank, tone: "purple", value: (r) => peso(sum(r, "ending")) },
+      { label: "Beginning Balance", icon: Wallet, tone: "blue", metric: "beginning" },
+      { label: "Total Receipts", icon: ArrowDownToLine, tone: "green", metric: "receipts" },
+      { label: "Total Disbursements", icon: ArrowUpFromLine, tone: "red", metric: "disbursements" },
+      { label: "Ending Cash Position", icon: PiggyBank, tone: "purple", metric: "ending" },
     ],
     totals: ["beginning", "receipts", "disbursements", "ending"],
   },
@@ -427,10 +423,10 @@ export const LIST_CONFIGS: Record<string, ListConfig> = {
     searchKeys: ["no", "customer", "particulars"],
     filters: [{ key: "customer", label: "Customer / Agency" }, { key: "status", label: "Status" }],
     tiles: [
-      { label: "Total Receivables", icon: FileText, tone: "blue", value: (r) => peso(sum(r, "amount")) },
-      { label: "Total Collected (YTD)", icon: CircleCheck, tone: "green", value: (r) => peso(sum(r, "collected")) },
-      { label: "Outstanding Balance", icon: Clock3, tone: "amber", value: (r) => peso(sum(r, "balance")) },
-      { label: "Overdue Receivables", icon: CircleAlert, tone: "red", value: (r) => peso(sum(r.filter((x) => x.status === "Overdue"), "balance")) },
+      { label: "Total Receivables", icon: FileText, tone: "blue", metric: "totalAmount" },
+      { label: "Total Collected (YTD)", icon: CircleCheck, tone: "green", metric: "totalCollected" },
+      { label: "Outstanding Balance", icon: Clock3, tone: "amber", metric: "outstanding" },
+      { label: "Overdue Receivables", icon: CircleAlert, tone: "red", metric: "overdue" },
     ],
     totals: ["amount", "collected", "balance"],
   },

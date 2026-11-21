@@ -2,6 +2,8 @@
 
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { env } from "@/config/env";
+import { useCurrentInstitution } from "@/hooks/useCurrentInstitution";
+import { useGetSystemSettingsQuery } from "@/services/api/endpoints/settingsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setSidebarCollapsed } from "@/store/slices/uiSlice";
 
@@ -31,6 +33,9 @@ function Toggle({ id, checked, onChange, label, description }: { id: string; che
 export function PreferencesCard() {
   const dispatch = useAppDispatch();
   const collapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
+  const institution = useCurrentInstitution();
+  const { data: settings, isLoading, isError, refetch } = useGetSystemSettingsQuery();
+  const fromApi = (v: string | number | undefined) => (isLoading ? "…" : isError ? "Unavailable" : (v ?? "—"));
 
   return (
     <div className="space-y-6">
@@ -58,10 +63,31 @@ export function PreferencesCard() {
               <dt className="text-neutral-500">API base URL</dt>
               <dd className="truncate font-mono text-xs text-ink-900">{env.apiBaseUrl}</dd>
             </div>
+            {env.realResources.length > 0 && env.apiMode === "mock" && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-neutral-500">Live endpoints</dt>
+                <dd className="truncate font-mono text-xs text-ink-900">{env.realResources.join(", ")}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-4">
+              <dt className="text-neutral-500">Institution</dt>
+              <dd className="truncate text-right font-semibold text-ink-900">{institution.name}</dd>
+            </div>
             <div className="flex justify-between gap-4">
               <dt className="text-neutral-500">Fiscal year</dt>
-              <dd className="font-semibold text-ink-900">2026</dd>
+              <dd className="font-semibold text-ink-900">{fromApi(settings?.fiscal_year)}</dd>
             </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-neutral-500">Current period</dt>
+              <dd className="font-semibold text-ink-900">{fromApi(settings?.current_period)}</dd>
+            </div>
+            {isError && (
+              <div className="text-right">
+                <button type="button" className="text-xs font-semibold text-brand-700 underline" onClick={() => void refetch()}>
+                  Retry loading settings
+                </button>
+              </div>
+            )}
           </dl>
         </CardBody>
       </Card>

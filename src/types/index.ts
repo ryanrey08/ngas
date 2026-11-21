@@ -1,6 +1,4 @@
-/** Demo roles used by the mock Users & Roles screen (the backend's real roles are in features/auth/types). */
-export type Role = "admin" | "accountant" | "budget_officer" | "viewer";
-
+/** Frontend capabilities used to gate screens (mapped to backend permissions in config/navigation). */
 export type Permission =
   | "dashboard:view"
   | "transactions:view"
@@ -27,17 +25,6 @@ export interface ApiError {
 }
 
 export type AsyncStatus = "idle" | "loading" | "succeeded" | "failed";
-
-/** A user record in the mock Users & Roles screen. */
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  position: string;
-  office: string;
-  phone?: string;
-}
 
 export interface Notification {
   id: string;

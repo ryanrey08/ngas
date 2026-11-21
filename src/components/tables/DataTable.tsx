@@ -38,6 +38,17 @@ export interface DataTableProps<T> {
   selectedId?: string | null;
   /** Rendered as a final summary row (e.g. totals). */
   footer?: ReactNode;
+  /**
+   * Server-side mode: `data` is already the current page, sorted by the API. The table then only
+   * renders, reports sort clicks via `onSortChange` and paginates over `total` rows.
+   */
+  server?: {
+    total: number;
+    sort: { key: string; direction: SortDirection } | null;
+    onSortChange: (sort: { key: string; direction: SortDirection }) => void;
+  };
+  /** A background refetch is running (keeps the rows visible, dimmed). */
+  fetching?: boolean;
 }
 
 const alignClass = { left: "text-left", right: "text-right", center: "text-center" } as const;
@@ -57,14 +68,17 @@ export function DataTable<T>({
   onRowClick,
   selectedId,
   footer,
+  server,
+  fetching,
 }: DataTableProps<T>) {
-  const [sort, setSort] = useState(initialSort ?? null);
+  const [localSort, setLocalSort] = useState(initialSort ?? null);
+  const sort = server ? server.sort : localSort;
   const [internalPage, setInternalPage] = useState(1);
   const page = controlledPage ?? internalPage;
   const setPage = onPageChange ?? setInternalPage;
 
   const sorted = useMemo(() => {
-    if (!sort) return data;
+    if (server || !sort) return data;
     const col = columns.find((c) => c.key === sort.key);
     if (!col?.sortValue) return data;
     const get = col.sortValue;
@@ -74,16 +88,18 @@ export function DataTable<T>({
       const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return sort.direction === "asc" ? cmp : -cmp;
     });
-  }, [data, columns, sort]);
+  }, [data, columns, sort, server]);
 
-  const totalPages = pageSize ? Math.max(1, Math.ceil(sorted.length / pageSize)) : 1;
+  const totalRows = server ? server.total : sorted.length;
+  const totalPages = pageSize ? Math.max(1, Math.ceil(totalRows / pageSize)) : 1;
   const safePage = Math.min(page, totalPages);
-  const visible = pageSize ? sorted.slice((safePage - 1) * pageSize, safePage * pageSize) : sorted;
+  const visible = pageSize && !server ? sorted.slice((safePage - 1) * pageSize, safePage * pageSize) : sorted;
 
   const toggleSort = (key: string) => {
-    setSort((prev) =>
-      prev?.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" },
-    );
+    const next = (prev: typeof sort): { key: string; direction: SortDirection } =>
+      prev?.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" };
+    if (server) server.onSortChange(next(sort));
+    else setLocalSort(next);
     setPage(1);
   };
 
@@ -91,7 +107,7 @@ export function DataTable<T>({
 
   return (
     <div>
-      <div className="scrollbar-thin relative overflow-x-auto">
+      <div className={cn("scrollbar-thin relative overflow-x-auto transition-opacity", fetching && !loading && "opacity-60")} aria-busy={loading || fetching || undefined}>
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <caption className="sr-only">{caption}</caption>
           <thead>
@@ -185,9 +201,9 @@ export function DataTable<T>({
           {footer && !loading && visible.length > 0 && <tfoot>{footer}</tfoot>}
         </table>
       </div>
-      {pageSize && !loading && sorted.length > 0 && (
+      {pageSize && !loading && totalRows > 0 && (
         <div className="border-t border-neutral-100">
-          <Pagination page={safePage} pageSize={pageSize} total={sorted.length} onPageChange={setPage} />
+          <Pagination page={safePage} pageSize={pageSize} total={totalRows} onPageChange={setPage} />
         </div>
       )}
     </div>

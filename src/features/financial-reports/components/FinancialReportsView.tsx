@@ -25,14 +25,14 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { SectionCard } from "@/components/ui/SectionCard";
-import { getInstitution } from "@/config/institutions";
-import { useAsyncData } from "@/hooks/useAsyncData";
+import { useCurrentInstitution } from "@/hooks/useCurrentInstitution";
 import { cn, downloadCsv, formatCurrency, formatDate } from "@/lib/utils";
-import { SAMPLE_BALANCE_SHEET } from "@/mocks/financialReports";
-import { moduleService } from "@/services/moduleService";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { errorMessage } from "@/services/api/errors";
+import { useGenerateReportMutation, useGetReportCatalogQuery, useSetReportFavoriteMutation } from "@/services/api/endpoints/reportsApi";
+import { useGetSystemSettingsQuery } from "@/services/api/endpoints/settingsApi";
+import { useAppDispatch } from "@/store/hooks";
 import { showToast } from "@/store/slices/uiSlice";
-import type { ReportCategory, ReportDef } from "../types";
+import type { GeneratedReport, ReportCategory, ReportDef } from "../types";
 
 const CATEGORY_ICON: Record<ReportCategory, LucideIcon> = {
   "Financial Statements": FileText,
@@ -46,31 +46,36 @@ const ICON_TONES = ["bg-green-600", "bg-blue-600", "bg-brand-600", "bg-purple-60
 
 export function FinancialReportsView() {
   const dispatch = useAppDispatch();
-  const institution = getInstitution(useAppSelector((s) => s.ui.institutionId));
-  const { data, loading, error, reload } = useAsyncData(moduleService.getFinancialReports);
+  const institution = useCurrentInstitution();
+  const { data, isLoading, error, refetch } = useGetReportCatalogQuery();
+  const { data: settings } = useGetSystemSettingsQuery();
+  const [generateReport, generateState] = useGenerateReportMutation();
+  const [setFavorite] = useSetReportFavoriteMutation();
   const [category, setCategory] = useState<ReportCategory | "">("");
   const [query, setQuery] = useState("");
-  const [period, setPeriod] = useState("November 2026");
-  const [favorites, setFavorites] = useState<Set<string>>(new Set(["FR-001", "FR-007"]));
-  const [preview, setPreview] = useState<ReportDef | null>(null);
-  const [generating, setGenerating] = useState<string | null>(null);
+  const [period, setPeriod] = useState("");
+  const [fiscalYear, setFiscalYear] = useState("");
+  const [preview, setPreview] = useState<GeneratedReport | null>(null);
+  const activePeriod = period || settings?.current_period || "November 2026";
+  const activeYear = fiscalYear || String(settings?.fiscal_year ?? 2026);
+  const generating = generateState.isLoading ? generateState.originalArgs?.code : null;
 
   const reports = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (data?.reports ?? []).filter((r) => (!category || r.category === category) && (!q || r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q)));
   }, [data, category, query]);
 
-  if (error) return <ErrorState message={error} onRetry={reload} />;
-  if (loading || !data) return <PageLoader label="Loading report catalog…" />;
+  if (error && !data) return <ErrorState message={errorMessage(error)} onRetry={refetch} />;
+  if (isLoading || !data) return <PageLoader label="Loading report catalog…" />;
 
   const categories = Object.keys(CATEGORY_ICON) as ReportCategory[];
   const countOf = (c: ReportCategory) => data.reports.filter((r) => r.category === c).length;
 
   const generate = async (r: ReportDef) => {
-    setGenerating(r.code);
-    await new Promise((res) => setTimeout(res, 600));
-    setGenerating(null);
-    setPreview(r);
+    if (generateState.isLoading) return;
+    const res = await generateReport({ code: r.code, period: activePeriod, fiscalYear: activeYear });
+    if ("data" in res && res.data) setPreview(res.data);
+    else dispatch(showToast({ variant: "error", title: `Could not generate ${r.name}`, description: errorMessage(res.error) }));
   };
 
   return (
@@ -109,8 +114,8 @@ export function FinancialReportsView() {
               <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search report name or code…" className="h-10 w-full rounded-lg border border-neutral-300 pr-3 pl-9 text-sm focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20 focus:outline-none" />
             </label>
-            <FormSelect label="Fiscal Year" options={["2026", "2025"]} defaultValue="2026" />
-            <FormSelect label="Period" options={["November 2026", "October 2026", "Q3 2026", "FY 2025"]} value={period} onChange={(e) => setPeriod(e.target.value)} />
+            <FormSelect label="Fiscal Year" options={(settings?.fiscal_years ?? [2026]).map(String)} value={activeYear} onChange={(e) => setFiscalYear(e.target.value)} />
+            <FormSelect label="Period" options={settings?.periods ?? [activePeriod]} value={activePeriod} onChange={(e) => setPeriod(e.target.value)} />
           </div>
 
           {reports.length === 0 ? (
@@ -119,7 +124,7 @@ export function FinancialReportsView() {
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
               {reports.map((r, i) => {
                 const Icon = CATEGORY_ICON[r.category];
-                const fav = favorites.has(r.code);
+                const fav = Boolean(r.favorite);
                 return (
                   <li key={r.code} className="flex flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-card">
                     <div className="flex items-start gap-3">
@@ -134,12 +139,7 @@ export function FinancialReportsView() {
                         type="button"
                         aria-label={fav ? `Remove ${r.name} from favorites` : `Add ${r.name} to favorites`}
                         aria-pressed={fav}
-                        onClick={() => setFavorites((s) => {
-                          const n = new Set(s);
-                          if (n.has(r.code)) n.delete(r.code);
-                          else n.add(r.code);
-                          return n;
-                        })}
+                        onClick={() => void setFavorite({ code: r.code, favorite: !fav })}
                         className="rounded p-1 text-neutral-400 hover:text-amber-500"
                       >
                         <Star className={cn("h-4 w-4", fav && "fill-amber-400 text-amber-500")} aria-hidden />
@@ -152,7 +152,7 @@ export function FinancialReportsView() {
                           <span key={f} className="rounded bg-neutral-100 px-1.5 py-0.5 text-[0.65rem] font-semibold text-neutral-700">{f}</span>
                         ))}
                       </span>
-                      <Button size="xs" variant="blue" loading={generating === r.code} onClick={() => generate(r)} aria-label={`Generate ${r.name}`}>
+                      <Button size="xs" variant="blue" loading={generating === r.code} disabled={Boolean(generating) && generating !== r.code} onClick={() => generate(r)} aria-label={`Generate ${r.name}`}>
                         Generate
                       </Button>
                     </div>
@@ -165,7 +165,7 @@ export function FinancialReportsView() {
 
         <aside className="space-y-4">
           <SectionCard title="Quick Actions" icon={Zap} bodyClassName="space-y-2 p-3">
-            <Button fullWidth leftIcon={<Play />} onClick={() => generate(data.reports[0])}>
+            <Button fullWidth leftIcon={<Play />} loading={generating === data.reports[0]?.code} disabled={!data.reports.length} onClick={() => generate(reports[0] ?? data.reports[0])}>
               Generate Report
             </Button>
             <Link href="/financial-reports/templates" className="flex h-9 items-center justify-center gap-2 rounded-lg border border-brand-600 text-sm font-semibold text-brand-700 hover:bg-brand-50">
@@ -185,6 +185,7 @@ export function FinancialReportsView() {
           </SectionCard>
           <SectionCard title="Recent Reports" icon={History} bodyClassName="p-0">
             <ul className="divide-y divide-neutral-100">
+              {data.recent.length === 0 && <li className="px-4 py-6 text-center text-xs text-neutral-500">No reports generated yet.</li>}
               {data.recent.map((r) => (
                 <li key={r.name + r.at} className="flex items-start gap-2.5 px-4 py-2.5 text-xs">
                   <FileText className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" aria-hidden />
@@ -214,8 +215,14 @@ export function FinancialReportsView() {
               variant="excel"
               leftIcon={<FileSpreadsheet />}
               onClick={() => {
-                downloadCsv(`${preview?.code}-${period.replace(/\s+/g, "-")}.csv`, SAMPLE_BALANCE_SHEET.map((l) => ({ Particulars: l.label, Amount: l.amount ?? "" })));
-                dispatch(showToast({ variant: "success", title: "Report exported", description: `${preview?.name} – ${period}` }));
+                if (!preview) return;
+                downloadCsv(
+                  `${preview.code}-${preview.period.replace(/\s+/g, "-")}.csv`,
+                  preview.lines.map((l) =>
+                    preview.columns.length === 3 ? { [preview.columns[0]]: l.label, [preview.columns[1]]: l.debit ?? "", [preview.columns[2]]: l.credit ?? "" } : { Particulars: l.label, Amount: l.amount ?? "" },
+                  ),
+                );
+                dispatch(showToast({ variant: "success", title: "Report exported", description: `${preview.name} – ${preview.period}` }));
               }}
             >
               Export to Excel
@@ -231,27 +238,43 @@ export function FinancialReportsView() {
                 <p className="font-heading text-sm font-bold text-ink-900">{institution.name}</p>
                 <p className="text-neutral-600">New Government Accounting System (eNGAS)</p>
                 <p className="mt-1 font-heading text-base font-bold text-brand-700">{preview.name}</p>
-                <p className="text-neutral-600">For the period: {period} · All Funds</p>
+                <p className="text-neutral-600">For the period: {preview.period} · FY {preview.fiscalYear} · All Funds</p>
               </div>
             </header>
             <table className="w-full">
               <caption className="sr-only">{preview.name}</caption>
               <thead>
                 <tr className="bg-navy-900 text-white">
-                  <th scope="col" className="px-3 py-2 text-left">Particulars</th>
-                  <th scope="col" className="px-3 py-2 text-right">Amount (₱)</th>
+                  {preview.columns.map((c, i) => (
+                    <th key={c} scope="col" className={cn("px-3 py-2", i === 0 ? "text-left" : "text-right")}>{c}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {SAMPLE_BALANCE_SHEET.map((l) => (
-                  <tr key={l.label} className={cn("border-b border-neutral-100", l.total && "bg-blue-50 font-bold", l.level === 0 && !l.total && "font-bold")}>
+                {preview.lines.length === 0 && (
+                  <tr>
+                    <td colSpan={preview.columns.length} className="px-3 py-6 text-center text-neutral-500">No data for this period.</td>
+                  </tr>
+                )}
+                {preview.lines.map((l, i) => (
+                  <tr key={`${l.label}-${i}`} className={cn("border-b border-neutral-100", l.total && "bg-blue-50 font-bold", l.level === 0 && !l.total && "font-bold")}>
                     <td className="px-3 py-1.5" style={{ paddingLeft: 12 + l.level * 16 }}>{l.label}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{l.amount !== undefined ? formatCurrency(l.amount).replace("₱", "") : ""}</td>
+                    {preview.columns.length === 3 ? (
+                      <>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{l.debit ? formatCurrency(l.debit).replace("₱", "") : ""}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{l.credit ? formatCurrency(l.credit).replace("₱", "") : ""}</td>
+                      </>
+                    ) : (
+                      <td className="px-3 py-1.5 text-right tabular-nums">{l.amount !== undefined ? formatCurrency(l.amount).replace("₱", "") : ""}</td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p className="mt-3 text-[0.65rem] text-neutral-500">Sample data generated in demo mode. Figures are illustrative.</p>
+            <p className="mt-3 text-[0.65rem] text-neutral-500">
+              Generated {formatDate(preview.generatedAt, { month: "short", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" })}.
+              {preview.sample && " Sample figures: this report's layout is illustrative until its backend endpoint is available."}
+            </p>
           </article>
         )}
       </Modal>

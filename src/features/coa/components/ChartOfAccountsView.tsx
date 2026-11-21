@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight, CircleAlert, Copy, FileText, Filter, ListTree, Pencil, RotateCcw, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { FormInput, FormSelect } from "@/components/forms";
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -9,54 +9,61 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { usePageCommand } from "@/hooks/usePageCommand";
+import { usePermission } from "@/hooks/usePermission";
 import { cn, downloadCsv } from "@/lib/utils";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { errorMessage } from "@/services/api/errors";
+import { useGetAccountQuery, useGetAccountsQuery } from "@/services/api/endpoints/coaApi";
+import { useAppDispatch } from "@/store/hooks";
 import { showToast } from "@/store/slices/uiSlice";
-import { fetchAccounts } from "../coaSlice";
 import { ACCOUNT_CLASSIFICATIONS, type Account } from "../types";
-import { NewAccountModal } from "./NewAccountModal";
+import { AccountFormModal } from "./NewAccountModal";
 
 const EMPTY = { keyword: "", classification: "", type: "", status: "Active" };
 
 export function ChartOfAccountsView() {
   const dispatch = useAppDispatch();
-  const { accounts, status, error } = useAppSelector((s) => s.coa);
+  const canManage = usePermission("transactions:manage");
   const [draft, setDraft] = useState(EMPTY);
   const [applied, setApplied] = useState(EMPTY);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set(["1.02", "2", "3", "4", "5", "6"]));
   const [selectedCode, setSelectedCode] = useState("1.01.01");
-  const [newOpen, setNewOpen] = useState(false);
-
-  useEffect(() => {
-    if (status === "idle") void dispatch(fetchAccounts());
-  }, [status, dispatch]);
-
-  usePageCommand("new", () => setNewOpen(true));
-  usePageCommand("export", () => {
-    downloadCsv("engas-chart-of-accounts.csv", accounts.map((a) => ({ Code: a.code, Title: a.title, UACS: a.uacs ?? "", Classification: a.classification, Type: a.accountType, "Normal Balance": a.normalBalance, Status: a.status })));
-    dispatch(showToast({ variant: "success", title: "Chart of Accounts exported" }));
-  });
+  const [modal, setModal] = useState<{ open: boolean; editing: Account | null }>({ open: false, editing: null });
 
   const filtering = Boolean(applied.keyword || applied.classification || applied.type || applied.status !== "Active");
+  // Full tree (shared cache with the account pickers) + a server-filtered query when filtering.
+  const tree = useGetAccountsQuery();
+  const filtered = useGetAccountsQuery(
+    { search: applied.keyword.trim() || undefined, classification: applied.classification || undefined, accountType: applied.type || undefined, status: applied.status || undefined },
+    { skip: !filtering },
+  );
+  const accounts = useMemo(() => tree.data ?? [], [tree.data]);
+  const active = filtering ? filtered : tree;
+  const error = active.error;
+  const loading = active.isLoading || (filtering && filtered.isFetching && !filtered.data);
+
+  usePageCommand("new", () => setModal({ open: true, editing: null }));
+  usePageCommand("export", () => {
+    const rows = filtering ? (filtered.data ?? []) : accounts;
+    downloadCsv("engas-chart-of-accounts.csv", rows.map((a) => ({ Code: a.code, Title: a.title, UACS: a.uacs ?? "", Classification: a.classification, Type: a.accountType, "Normal Balance": a.normalBalance, Status: a.status })));
+    dispatch(showToast({ variant: "success", title: "Chart of Accounts exported", description: `${rows.length} accounts` }));
+  });
+
   const hasChildren = useMemo(() => new Set(accounts.map((a) => a.parentCode).filter(Boolean) as string[]), [accounts]);
 
   const visible = useMemo(() => {
-    const k = applied.keyword.trim().toLowerCase();
-    const matches = (a: Account) =>
-      (!k || a.code.includes(k) || a.title.toLowerCase().includes(k) || (a.uacs ?? "").includes(k)) &&
-      (!applied.classification || a.classification === applied.classification) &&
-      (!applied.type || a.accountType === applied.type) &&
-      (!applied.status || a.status === applied.status);
-    if (filtering) return accounts.filter(matches);
+    if (filtering) return filtered.data ?? [];
     // Tree mode: hide rows whose ancestor is collapsed
     return accounts.filter((a) => {
       const parts = a.code.split(".");
       for (let i = 1; i < parts.length; i++) if (collapsed.has(parts.slice(0, i).join("."))) return false;
       return true;
     });
-  }, [accounts, applied, collapsed, filtering]);
+  }, [accounts, collapsed, filtering, filtered.data]);
 
-  const selected = accounts.find((a) => a.code === selectedCode) ?? null;
+  const listed = accounts.find((a) => a.code === selectedCode) ?? null;
+  // Details panel reads the account by id (GET /coa/accounts/{id}); list data shows meanwhile.
+  const detail = useGetAccountQuery(listed?.id ?? "", { skip: !listed });
+  const selected = detail.data && detail.data.code === selectedCode ? detail.data : listed;
   const toggle = (code: string) =>
     setCollapsed((s) => {
       const n = new Set(s);
@@ -102,11 +109,11 @@ export function ChartOfAccountsView() {
           title="Chart of Accounts (RCA)"
           icon={ListTree}
           bodyClassName="p-0"
-          actions={<span className="text-xs text-neutral-600">Total Records: <b className="text-ink-900">{accounts.length.toLocaleString()}</b></span>}
+          actions={<span className="text-xs text-neutral-600">Total Records: <b className="text-ink-900">{(filtering ? visible.length : accounts.length).toLocaleString()}</b></span>}
         >
-          {status === "failed" ? (
-            <ErrorState message={error} onRetry={() => dispatch(fetchAccounts())} />
-          ) : status !== "succeeded" ? (
+          {error && !active.data ? (
+            <ErrorState message={errorMessage(error)} onRetry={active.refetch} />
+          ) : loading || !active.data ? (
             <div className="py-16 text-center">
               <LoadingSpinner size="lg" label="Loading accounts…" />
             </div>
@@ -171,9 +178,11 @@ export function ChartOfAccountsView() {
                         </td>
                         <td className="px-3 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
                           <span className="inline-flex gap-1">
-                            <button type="button" aria-label={`Edit ${a.code}`} className="rounded p-1 text-neutral-600 hover:bg-neutral-100" onClick={() => dispatch(showToast({ variant: "info", title: "Editing is disabled in demo mode" }))}>
-                              <Pencil className="h-3.5 w-3.5" aria-hidden />
-                            </button>
+                            {canManage && (
+                              <button type="button" aria-label={`Edit ${a.code}`} title="Edit" className="rounded p-1 text-neutral-600 hover:bg-neutral-100" onClick={() => setModal({ open: true, editing: a })}>
+                                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                            )}
                             <button
                               type="button"
                               aria-label={`Copy ${a.code}`}
@@ -210,6 +219,8 @@ export function ChartOfAccountsView() {
                     ["Parent Account", selected.parentCode ? `${selected.parentCode} – ${accounts.find((a) => a.code === selected.parentCode)?.title ?? ""}` : "—"],
                     ["Level", String(selected.level)],
                     ["Normal Balance", selected.normalBalance],
+                    ["Allow Posting", selected.postable ? "Yes" : "No (header account)"],
+                    ["Sub-accounts", "children" in selected ? String(selected.children) : "…"],
                   ] as const
                 ).map(([k, v]) => (
                   <div key={k} className="contents">
@@ -231,7 +242,7 @@ export function ChartOfAccountsView() {
           </SectionCard>
         </div>
       </div>
-      <NewAccountModal open={newOpen} onClose={() => setNewOpen(false)} />
+      <AccountFormModal open={modal.open} editing={modal.editing} onClose={() => setModal({ open: false, editing: null })} />
     </>
   );
 }

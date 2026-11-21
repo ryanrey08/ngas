@@ -4,13 +4,8 @@ export interface Institution {
   shortName: string;
 }
 
-/** Agencies / institutions the signed-in user can switch between (mock; would come from the API). */
-export const INSTITUTIONS: Institution[] = [
-  { id: "mpc", name: "Marikina Polytechnic College", shortName: "MPC" },
-  { id: "rsu", name: "Regional State University", shortName: "RSU" },
-  { id: "pro", name: "Provincial Government Office", shortName: "PGO" },
-];
-
-export function getInstitution(id: string): Institution {
-  return INSTITUTIONS.find((i) => i.id === id) ?? INSTITUTIONS[0];
-}
+/**
+ * Shown until `GET /institutions` answers (and if it fails), so the header and footer never
+ * render empty. The real list always comes from the API.
+ */
+export const FALLBACK_INSTITUTION: Institution = { id: "mpc", name: "Marikina Polytechnic College", shortName: "MPC" };

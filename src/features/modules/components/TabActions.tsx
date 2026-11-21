@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/Button";
 import type { TabAction } from "@/config/modules";
 import { usePermission } from "@/hooks/usePermission";
 import { emitPageCommand } from "@/lib/events";
+import { SAVE_ENTRY_KEY, useCreateJournalEntryMutation } from "@/services/api/endpoints/journalApi";
+import { useGenerateAutoJournalMutation } from "@/services/api/endpoints/recordsApi";
 
 /** Form id used by entry screens so header buttons can submit them via the `form` attribute. */
 export const ENTRY_FORM_ID = "journal-entry-form";
@@ -13,6 +15,9 @@ export const ENTRY_FORM_ID = "journal-entry-form";
 export function TabActions({ actions, newLabel = "New" }: { actions: TabAction[]; newLabel?: string }) {
   const router = useRouter();
   const canManage = usePermission("transactions:manage");
+  // Same mutation cache as the entry form: Save/Post stay disabled while a save is in flight.
+  const [, { isLoading: saving }] = useCreateJournalEntryMutation({ fixedCacheKey: SAVE_ENTRY_KEY });
+  const [, { isLoading: generating }] = useGenerateAutoJournalMutation({ fixedCacheKey: "auto-journal-generate" });
 
   return (
     <>
@@ -26,19 +31,19 @@ export function TabActions({ actions, newLabel = "New" }: { actions: TabAction[]
             );
           case "saveDraft":
             return canManage ? (
-              <Button key={a} variant="outline" size="sm" leftIcon={<Save />} type="submit" form={ENTRY_FORM_ID} value="draft">
+              <Button key={a} variant="outline" size="sm" leftIcon={<Save />} type="submit" form={ENTRY_FORM_ID} value="draft" disabled={saving}>
                 Save Draft
               </Button>
             ) : null;
           case "post":
             return canManage ? (
-              <Button key={a} variant="success" size="sm" leftIcon={<Send />} type="submit" form={ENTRY_FORM_ID} value="post">
+              <Button key={a} variant="success" size="sm" leftIcon={<Send />} type="submit" form={ENTRY_FORM_ID} value="post" loading={saving}>
                 Post Entry
               </Button>
             ) : null;
           case "cancel":
             return canManage ? (
-              <Button key={a} variant="outlineDanger" size="sm" leftIcon={<X />} type="reset" form={ENTRY_FORM_ID}>
+              <Button key={a} variant="outlineDanger" size="sm" leftIcon={<X />} type="reset" form={ENTRY_FORM_ID} disabled={saving}>
                 Cancel
               </Button>
             ) : null;
@@ -62,7 +67,7 @@ export function TabActions({ actions, newLabel = "New" }: { actions: TabAction[]
             ) : null;
           case "generate":
             return (
-              <Button key={a} variant="excel" size="sm" leftIcon={<Play />} onClick={() => emitPageCommand("generate")}>
+              <Button key={a} variant="excel" size="sm" leftIcon={<Play />} loading={generating} onClick={() => emitPageCommand("generate")}>
                 Generate Entries
               </Button>
             );

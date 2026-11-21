@@ -8,11 +8,12 @@ import { useForm } from "react-hook-form";
 import { FormInput, FormSelect, FormTextarea } from "@/components/forms";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { errorMessage, fieldErrors } from "@/services/api/errors";
+import { useCreateAccountMutation, useGetAccountsQuery, useUpdateAccountMutation } from "@/services/api/endpoints/coaApi";
+import { useAppDispatch } from "@/store/hooks";
 import { showToast } from "@/store/slices/uiSlice";
-import { createAccount } from "../coaSlice";
 import { accountSchema, type AccountFormValues } from "../schemas";
-import { ACCOUNT_CLASSIFICATIONS } from "../types";
+import { ACCOUNT_CLASSIFICATIONS, type Account, type AccountInput } from "../types";
 
 const DEFAULTS: AccountFormValues = {
   code: "",
@@ -44,9 +45,27 @@ function Switch({ label, checked, onChange }: { label: string; checked: boolean;
   );
 }
 
-export function NewAccountModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+const toForm = (a: Account): AccountFormValues => ({
+  code: a.code,
+  title: a.title,
+  parentCode: a.parentCode ?? "",
+  classification: a.classification,
+  accountType: a.accountType,
+  normalBalance: a.normalBalance,
+  uacs: a.uacs ?? "",
+  postable: a.postable,
+  active: a.status === "Active",
+  description: a.description,
+});
+
+/** New Account (`POST /coa/accounts`) and Edit Account (`PATCH /coa/accounts/{id}`). */
+export function AccountFormModal({ open, editing, onClose }: { open: boolean; editing?: Account | null; onClose: () => void }) {
   const dispatch = useAppDispatch();
-  const parents = useAppSelector((s) => s.coa.accounts.filter((a) => !a.postable));
+  const { data: accounts = [] } = useGetAccountsQuery();
+  const parents = accounts.filter((a) => !a.postable);
+  const [createAccount, createState] = useCreateAccountMutation();
+  const [updateAccount, updateState] = useUpdateAccountMutation();
+  const saving = createState.isLoading || updateState.isLoading;
   const {
     register,
     handleSubmit,
@@ -54,38 +73,40 @@ export function NewAccountModal({ open, onClose }: { open: boolean; onClose: () 
     setError,
     watch,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<AccountFormValues>({ resolver: zodResolver(accountSchema), defaultValues: DEFAULTS });
 
   useEffect(() => {
-    if (open) reset(DEFAULTS);
-  }, [open, reset]);
+    if (open) reset(editing ? toForm(editing) : DEFAULTS);
+  }, [open, editing, reset]);
 
   const onValid = async (v: AccountFormValues, e?: BaseSyntheticEvent) => {
-    const again = (e?.nativeEvent as SubmitEvent | undefined)?.submitter?.getAttribute("value") === "again";
-    const res = await dispatch(
-      createAccount({
-        code: v.code,
-        title: v.title,
-        parentCode: v.parentCode || null,
-        classification: v.classification,
-        accountType: v.accountType,
-        normalBalance: v.normalBalance,
-        uacs: v.uacs || undefined,
-        postable: v.postable,
-        status: v.active ? "Active" : "Inactive",
-        description: v.description || `${v.title} account.`,
-      }),
-    );
-    if (createAccount.fulfilled.match(res)) {
-      dispatch(showToast({ variant: "success", title: "Account created", description: `${v.code} – ${v.title}` }));
+    if (saving) return;
+    const again = !editing && (e?.nativeEvent as SubmitEvent | undefined)?.submitter?.getAttribute("value") === "again";
+    const input: AccountInput = {
+      code: v.code,
+      title: v.title,
+      parentCode: v.parentCode || null,
+      classification: v.classification,
+      accountType: v.accountType,
+      normalBalance: v.normalBalance,
+      uacs: v.uacs || undefined,
+      postable: v.postable,
+      status: v.active ? "Active" : "Inactive",
+      description: v.description || `${v.title} account.`,
+    };
+    const res = editing
+      ? await updateAccount({ id: editing.id, patch: { title: input.title, classification: input.classification, accountType: input.accountType, normalBalance: input.normalBalance, uacs: input.uacs, postable: input.postable, status: input.status, description: input.description } })
+      : await createAccount(input);
+    if ("data" in res && res.data) {
+      dispatch(showToast({ variant: "success", title: editing ? "Account updated" : "Account created", description: `${v.code} – ${v.title}` }));
       if (again) reset({ ...DEFAULTS, parentCode: v.parentCode, classification: v.classification });
       else onClose();
-    } else if (res.payload?.errors?.code) {
-      setError("code", { message: res.payload.message });
-    } else {
-      dispatch(showToast({ variant: "error", title: "Could not create account", description: res.payload?.message }));
+      return;
     }
+    const fields = fieldErrors(res.error);
+    (Object.keys(fields) as Array<keyof AccountFormValues>).forEach((k) => setError(k, { message: fields[k] }));
+    if (!Object.keys(fields).length) dispatch(showToast({ variant: "error", title: editing ? "Could not update account" : "Could not create account", description: errorMessage(res.error) }));
   };
 
   const formId = "new-account-form";
@@ -96,19 +117,21 @@ export function NewAccountModal({ open, onClose }: { open: boolean; onClose: () 
     <Modal
       open={open}
       onClose={onClose}
-      title="New Account"
+      title={editing ? `Edit Account ${editing.code}` : "New Account"}
       icon={<ListTree />}
       size="xl"
-      dismissible={!isSubmitting}
+      dismissible={!saving}
       footer={
         <>
-          <Button variant="outline" leftIcon={<X />} onClick={onClose} disabled={isSubmitting} className="sm:mr-auto">
+          <Button variant="outline" leftIcon={<X />} onClick={onClose} disabled={saving} className="sm:mr-auto">
             Cancel
           </Button>
-          <Button variant="outline" leftIcon={<Save />} type="submit" form={formId} value="again" disabled={isSubmitting}>
-            Save &amp; Add Another
-          </Button>
-          <Button variant="blue" leftIcon={<Save />} type="submit" form={formId} value="save" loading={isSubmitting}>
+          {!editing && (
+            <Button variant="outline" leftIcon={<Save />} type="submit" form={formId} value="again" disabled={saving}>
+              Save &amp; Add Another
+            </Button>
+          )}
+          <Button variant="blue" leftIcon={<Save />} type="submit" form={formId} value="save" loading={saving}>
             Save
           </Button>
         </>
@@ -122,13 +145,15 @@ export function NewAccountModal({ open, onClose }: { open: boolean; onClose: () 
               <FileText aria-hidden /> Account Information
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormInput label="Account Code" required placeholder="1.01.07" error={errors.code?.message} {...register("code")} />
+              <FormInput label="Account Code" required placeholder="1.01.07" readOnly={Boolean(editing)} hint={editing ? "Codes cannot be changed once created" : undefined} error={errors.code?.message} {...register("code")} />
               <FormInput label="UACS Object Code" placeholder="1990199000" inputMode="numeric" maxLength={10} error={errors.uacs?.message} {...register("uacs")} />
               <FormInput label="Account Title" required placeholder="Other Current Assets" error={errors.title?.message} containerClassName="sm:col-span-2" {...register("title")} />
               <FormSelect
                 label="Parent Account"
                 required
+                disabled={Boolean(editing)}
                 options={parents.map((p) => ({ value: p.code, label: `${p.code} – ${p.title}` }))}
+                error={errors.parentCode?.message}
                 {...register("parentCode")}
               />
               <FormSelect label="Account Classification" required options={ACCOUNT_CLASSIFICATIONS} error={errors.classification?.message} {...register("classification")} />

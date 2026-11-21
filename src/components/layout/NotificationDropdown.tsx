@@ -5,15 +5,17 @@ import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { markAllNotificationsRead, markNotificationRead } from "@/store/slices/notificationsSlice";
+import { useGetNotificationsQuery, useMarkAllNotificationsReadMutation, useMarkNotificationReadMutation } from "@/services/api/endpoints/notificationsApi";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 const icons = { info: Info, success: CircleCheck, warning: TriangleAlert };
 const tones = { info: "bg-sky-50 text-sky-600", success: "bg-emerald-50 text-emerald-600", warning: "bg-amber-50 text-amber-600" };
 
 export function NotificationDropdown() {
-  const dispatch = useAppDispatch();
-  const items = useAppSelector((s) => s.notifications.items);
+  // Polled every minute while the header is mounted; refetched when the window regains focus.
+  const { data: items = [], isLoading, isError, refetch } = useGetNotificationsQuery(undefined, { pollingInterval: 60_000, refetchOnFocus: true });
+  const [markRead] = useMarkNotificationReadMutation();
+  const [markAllRead] = useMarkAllNotificationsReadMutation();
   const unread = items.filter((n) => !n.read).length;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -47,7 +49,7 @@ export function NotificationDropdown() {
             <button
               type="button"
               disabled={unread === 0}
-              onClick={() => dispatch(markAllNotificationsRead())}
+              onClick={() => void markAllRead()}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-40"
             >
               <CheckCheck className="h-3.5 w-3.5" aria-hidden />
@@ -55,7 +57,20 @@ export function NotificationDropdown() {
             </button>
           </div>
           <ul className="scrollbar-thin max-h-96 divide-y divide-neutral-100 overflow-y-auto">
-            {items.length === 0 && <li className="px-4 py-8 text-center text-sm text-neutral-500">No notifications</li>}
+            {isLoading && (
+              <li className="px-4 py-8 text-center">
+                <LoadingSpinner label="Loading notifications…" />
+              </li>
+            )}
+            {isError && !items.length && (
+              <li className="px-4 py-8 text-center text-sm text-neutral-500">
+                Couldn&apos;t load notifications.{" "}
+                <button type="button" className="font-semibold text-brand-700 underline" onClick={() => void refetch()}>
+                  Retry
+                </button>
+              </li>
+            )}
+            {!isLoading && !isError && items.length === 0 && <li className="px-4 py-8 text-center text-sm text-neutral-500">No notifications</li>}
             {items.map((n) => {
               const Icon = icons[n.type];
               const body = (
@@ -74,7 +89,7 @@ export function NotificationDropdown() {
                 </div>
               );
               const onClick = () => {
-                dispatch(markNotificationRead(n.id));
+                if (!n.read) void markRead(n.id);
                 setOpen(false);
               };
               return (
