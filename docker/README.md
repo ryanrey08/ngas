@@ -219,6 +219,60 @@ networks:
 
 and add `-f docker-compose.backend-net.yml` to your commands. The backend must already be up.
 
+## Automatic deploys (GitHub Actions)
+
+NGAS runs on `mpc-front-end` next to the other frontends: a 1 vCPU / 2 GB
+server, so nothing is built there. `.github/workflows/deploy.yml`:
+
+1. **check** (every pull request and push to `main`): `npm ci`, type check, lint.
+2. **image** (`main` only, after check): builds the production image in
+   GitHub Actions and pushes it to `ghcr.io/ryanrey08/ngas:sha-<commit>`.
+   Layers are cached, so dependencies are reinstalled only when
+   `package-lock.json` changes. `NEXT_PUBLIC_*` values come from repository
+   variables (Settings → Secrets and variables → Actions → **Variables**);
+   unset ones use the `docker-compose.prod.yml` defaults.
+3. **deploy**: connects over SSH and sends `deploy <commit>` plus a
+   short-lived, read-only registry token. Nothing else is sent.
+
+On the server the Actions key is pinned to [`deploy.sh`](deploy.sh), installed
+as `/usr/local/sbin/ngas-deploy`. It pulls the image, checks out the same
+commit (compose files), starts it and waits for the `/login` health check. If
+the new release is unhealthy, it starts the previous one again and fails the
+job. It records every attempt in `/var/lib/ngas/releases` and keeps the images
+of the last five releases, so rollbacks work without GitHub.
+
+The container is capped at 384 MB (`FRONTEND_MEM_LIMIT`) with Node's heap at
+256 MB, so one busy app cannot starve the others on the server.
+
+### Rolling back
+
+GitHub: **Actions → Rollback → Run workflow**. Leave `target_sha` empty to go
+back one release (run it again to go back further), or give an earlier
+released commit, and enter a `reason`. Run it first with `confirm` empty: it
+only shows the live release and the target. Then run it again with `confirm`
+set to `ROLLBACK`. A rollback lasts until the next deploy from `main`.
+
+On the server, as root: `ngas-deploy releases`, then `ngas-deploy rollback`.
+
+### Server layout
+
+| | |
+|---|---|
+| Checkout | `/root/ngas` (on `main`; deploys check out the released commit) |
+| Settings | `/root/ngas/.env.docker`: `FRONTEND_BIND=127.0.0.1`, `FRONTEND_PORT=3101`, `NGAS_BACKEND_API_URL` |
+| Public address | Caddy (`/etc/caddy/Caddyfile`) serves port 3001 → `127.0.0.1:3101`. With a domain, replace `:3001` with the domain name |
+
+### Repository secrets
+
+Settings → Secrets and variables → Actions → **Repository secrets** (on a
+personal repository only the owner can add them):
+
+| Secret | Value |
+| --- | --- |
+| `SERVER_HOST` | The server's IP or host name. |
+| `SERVER_SSH_KEY` | The private half of the `github-actions-deploy-ngas` key, including the `BEGIN`/`END` lines. Its public half is pinned on the server. |
+| `DEPLOY_KNOWN_HOSTS` | The server's host key lines (`<server ip> <type> <key>`), read on the server from `/etc/ssh/ssh_host_*_key.pub`. |
+
 ## Managing containers
 
 ```bash
