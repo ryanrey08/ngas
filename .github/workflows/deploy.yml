@@ -1,0 +1,126 @@
+name: Deploy NGAS
+
+# check: every pull request and every push to main.
+# image + deploy: pushes to main (and "Run workflow"), only after check passed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: # adds a manual "Run workflow" button
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ngas-${{ github.ref }}
+  # Never cancel a run on main: it may be mid-deploy.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+  # Builds the production image here instead of on the server: `next build`
+  # needs up to 2.5 GB of RAM and minutes of full CPU, which the 2 GB server
+  # (shared with the other frontends) cannot spare next to the running apps. Layers are cached in the Actions
+  # cache, so dependencies are reinstalled only when package-lock.json changes.
+  #
+  # NEXT_PUBLIC_* values are compiled into the browser bundle. Set them as
+  # repository variables (Settings > Secrets and variables > Actions >
+  # Variables); unset ones use the defaults below, which match
+  # docker-compose.prod.yml.
+  # Never put secrets in them: they are visible to every user of the app.
+  image:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push the production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: false
+          tags: ghcr.io/ryanrey08/ngas:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL || '/api/backend' }}
+            NEXT_PUBLIC_API_MODE=${{ vars.NEXT_PUBLIC_API_MODE || 'mock' }}
+            NEXT_PUBLIC_API_TIMEOUT=${{ vars.NEXT_PUBLIC_API_TIMEOUT || '15000' }}
+          cache-from: type=gha,scope=ngas
+          cache-to: type=gha,scope=ngas,mode=max
+
+  # The server's authorized_keys pins this key to docker/deploy.sh, so the only
+  # thing sent is the commit to deploy: the exact one `check` tested
+  # (GITHUB_SHA), not whatever main points to by now. The server pulls the
+  # image built above, waits for the health check and restores the previous
+  # release if it fails. Roll back by hand with the Rollback workflow.
+  # Repository secrets:
+  #   SERVER_HOST         server address
+  #   SERVER_SSH_KEY      private half of the pinned deploy key
+  #   DEPLOY_KNOWN_HOSTS  the server's host keys (known_hosts lines)
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-ngas
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Deploy the tested commit
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          # Expires when this job ends; only used to pull this commit's image.
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for name in SERVER_HOST SERVER_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is not set (Settings → Secrets and variables → Actions)."
+              exit 1
+            fi
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n%s\n' "$GITHUB_ACTOR" "$REGISTRY_TOKEN" \
+            | ssh -i ~/.ssh/deploy_key \
+                -o IdentitiesOnly=yes \
+                -o StrictHostKeyChecking=yes \
+                -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+                -o ConnectTimeout=20 \
+                -o ServerAliveInterval=30 \
+                "root@${SERVER_HOST}" "deploy $GITHUB_SHA actions-$GITHUB_RUN_NUMBER"
+
+      - name: Remove the key from the runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
